@@ -322,9 +322,10 @@ python3 -m venv .venv
 
 Prebuilt wheels skip the Rust toolchain. The
 [Python wheels workflow](.github/workflows/wheels.yml) builds `rne_py` for Ubuntu
-20.04 and newer (`manylinux_2_28` x86_64) and Windows x64 on every change. Each
-wheel is ABI3, so it serves Python 3.9 and newer. Download `rne_py-wheels` from a
-run's artifacts, then `pip install rne_py --no-index --find-links <dir>`.
+20.04 and newer (`manylinux_2_28` x86_64) and Windows x64. It runs on demand: open
+the Actions tab, pick "Python wheels" and choose Run workflow. Each wheel is ABI3,
+so it serves Python 3.9 and newer. Download `rne_py-wheels` from the run's
+artifacts, then `pip install rne_py --no-index --find-links <dir>`.
 
 ROS 2 is optional, isolated under [adapters/ros2](adapters/ros2); see the
 [bridge README](adapters/ros2/rne_ros2_bridge/README.md) for setup.

@@ -6,8 +6,8 @@ All notable changes to Robot Native Engine are documented in this file.
 
 ### Added
 
-- `Python wheels` workflow (`.github/workflows/wheels.yml`) builds `pip`
-  wheels of `rne_py`: Ubuntu `manylinux_2_28` x86_64 (glibc 2.28, Ubuntu
+- Manually triggered `Python wheels` workflow
+  (`.github/workflows/wheels.yml`) builds `pip` wheels of `rne_py`: Ubuntu `manylinux_2_28` x86_64 (glibc 2.28, Ubuntu
   20.04 and newer) and Windows x64. It installs each wheel on Ubuntu 22.04,
   the latest Ubuntu and Windows under Python 3.9 and 3.13, runs the release
   wheel smoke test, and uploads both wheels as the `rne_py-wheels` artifact.

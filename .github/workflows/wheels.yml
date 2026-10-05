@@ -10,27 +10,12 @@ name: Python wheels
 # bundle. That wheel is tagged for the runner's glibc, so it is not the one to hand
 # to `pip install` on older Ubuntu releases; this workflow produces those.
 
+# Manual only: start it from the Actions tab ("Python wheels" -> Run workflow).
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
-    paths:
-      - "crates/**"
-      - "third_party/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "release/python_wheel_smoke.py"
-      - ".github/workflows/wheels.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: wheels-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   MATURIN_VERSION: "1.13.3"
