@@ -1,0 +1,155 @@
+name: Python wheels
+
+# Builds installable `rne_py` wheels for Ubuntu (manylinux_2_28, glibc >= 2.28, so
+# Ubuntu 20.04 and newer) and Windows x64, then installs each wheel into a clean
+# Python on several OS images and runs the release wheel smoke test. The wheels are
+# ABI3 (`abi3-py39`), so one wheel per platform covers Python 3.9 and newer; the test
+# matrix checks the oldest and a current interpreter.
+#
+# The release rehearsal (release.yml) builds a wheel on the bare runner for its native
+# bundle. That wheel is tagged for the runner's glibc, so it is not the one to hand
+# to `pip install` on older Ubuntu releases; this workflow produces those.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "crates/**"
+      - "third_party/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "release/python_wheel_smoke.py"
+      - ".github/workflows/wheels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wheels-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  MATURIN_VERSION: "1.13.3"
+  ZIGLANG_VERSION: "0.16.0"
+
+jobs:
+  build-linux:
+    name: Build wheel (Ubuntu, manylinux_2_28 x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wheels-linux
+      # Zig links against a glibc 2.28 sysroot, so the wheel runs on any distribution
+      # with glibc >= 2.28 regardless of the runner's newer glibc. maturin's auditwheel
+      # check fails the build if a symbol needs a newer glibc than the tag claims.
+      - name: Build the manylinux_2_28 ABI3 wheel
+        run: |
+          python -m pip install --disable-pip-version-check \
+            "maturin==${MATURIN_VERSION}" "ziglang==${ZIGLANG_VERSION}"
+          maturin build --locked --release --features extension-module \
+            --compatibility manylinux_2_28 --zig \
+            --manifest-path crates/rne_py/Cargo.toml --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-linux-x86_64
+          if-no-files-found: error
+          path: dist/*.whl
+
+  build-windows:
+    name: Build wheel (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wheels-windows
+      - name: Build the win_amd64 ABI3 wheel
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "maturin==$env:MATURIN_VERSION"
+          maturin build --locked --release --features extension-module `
+            --manifest-path crates/rne_py/Cargo.toml --out dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-windows-x64
+          if-no-files-found: error
+          path: dist/*.whl
+
+  test:
+    name: Install and smoke (${{ matrix.os }}, Python ${{ matrix.python }})
+    needs: [build-linux, build-windows]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-22.04 has an older glibc than the build runner, so it proves the
+        # manylinux_2_28 tag rather than only the runner the wheel was built on.
+        os: [ubuntu-22.04, ubuntu-latest, windows-latest]
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: release/python_wheel_smoke.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ runner.os == 'Windows' && 'wheel-windows-x64' || 'wheel-linux-x86_64' }}
+          path: dist
+      # Install from the downloaded wheel only, never from an index, and run the smoke
+      # test from outside the checkout so `import rne_py` resolves to the installed wheel.
+      - name: Install the wheel into a clean environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            venv_python="$RUNNER_TEMP/venv/Scripts/python.exe"
+          else
+            venv_python="$RUNNER_TEMP/venv/bin/python"
+          fi
+          "$venv_python" -m pip install --disable-pip-version-check --no-index \
+            --find-links dist rne_py
+          echo "VENV_PYTHON=$venv_python" >> "$GITHUB_ENV"
+      - name: Run the wheel smoke test
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: '"$VENV_PYTHON" "$GITHUB_WORKSPACE/release/python_wheel_smoke.py"'
+
+  collect:
+    name: Collect wheels
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - name: List the wheels
+        run: ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rne_py-wheels
+          if-no-files-found: error
+          path: dist/*.whl
